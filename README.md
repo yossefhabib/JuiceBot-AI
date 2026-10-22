@@ -1,30 +1,38 @@
-# JuiceBot-AI: a self-hosted AI news-video pipeline
+# JuiceBot-AI: A Self-Hosted AI Pipeline
 
-Every morning, a pipeline on two machines in my house picks the day's top cybersecurity story. It writes a fact-checked script, narrates it and animates it, then sends the finished vertical video to my phone. I tap **Approve** and it's on YouTube Shorts. Nothing publishes without that tap.
+**Every morning at 05:00, two machines in my house pick the day's top cybersecurity story, write and fact-check a script, narrate it, animate it, and render a finished YouTube Short. Then it texts me the video and waits. Nothing gets posted until I tap Approve.**
 
-The rule I built it around: **running it costs zero paid API tokens.** Story judging, fact extraction and script writing run on a local LLM. Narration is local TTS, captions come from local Whisper, and the images, video clips and final render all run on my own 12 GB GPU. Cloud AI helped me build it. It doesn't run it.
+<p align="center">
+  <img src="media/hero.gif" alt="A finished video from the pipeline" width="320">
+</p>
 
-> The source code is private. This repo is a write-up of how it works and what broke along the way.
+**Watch the output:** [CyberJuice on YouTube](CHANNEL_URL)
 
-<!-- MEDIA: a finished video, OG style next to flat style -->
+> This repo is a write-up of the project. The source code is kept private.
 
 ---
 
-## What happens each day
+## Overview
 
-1. **05:00:** a schedule trigger fires on the always-on orchestrator.
-2. **Pick a story:** eight security-news RSS feeds are pulled and grouped by story. Stories get ranked by how many outlets carry them, and anything covered in the last week is skipped. A local LLM judges the top four the way I would, using my past approve/reject decisions as a taste reference.
-3. **Wake the GPU box:** it's normally off, so a Wake-on-LAN packet brings it up. The pipeline waits until its services answer.
-4. **Fact sheet:** the LLM pulls facts out of the source articles, and code checks each fact against the article text before anything is written.
-5. **Script:** four acts (what happened, why it matters, how it happened, what to do), with spoken signposts and on-screen act badges. Code rejects any number that isn't on the fact sheet.
-6. **Narration:** TTS on the GPU, then Whisper word timestamps that drive both the shot timing and the word-by-word captions.
-7. **Visuals:** in one of two styles (below), plus company logos pulled from Wikidata/Commons and a date badge so it's obvious the news is current.
-8. **Assembly:** ffmpeg + NVENC builds a full-quality master and a phone preview.
-9. **Approval card in Telegram:** the video, title, description, sources and why this story was picked. **Approve** uploads it to YouTube. **Reject** archives it with a reason. **Replying with changes** gets a proposed edit and a re-render.
+I wanted to see how far I could push an AI content pipeline with **zero paid AI at runtime**: no API tokens, no cloud GPUs, just open models on hardware I already own. It started out making history Shorts, and on 10/17 I switched it to cybersecurity news, which is closer to what I do every day in a SOC.
 
-If any step fails, I get a Telegram alert, and one command remakes the day's video.
+The catch: the GPU is in my everyday desktop, and I'm not leaving that running all day for one morning job. So the always-on orchestrator (my [MiniJuiceBox](https://github.com/yossefhabib/MiniJuiceBox) Mac mini) wakes the desktop with Wake-on-LAN, waits until every service proves it's ready, hands it the work, and lets it go back to sleep.
 
-<!-- MEDIA: Telegram approval card with Approve / Reject -->
+**Environment:**
+
+- Orchestrator: 2018 Mac mini (MiniJuiceBox), i7-8700B, 32 GB, Ubuntu 24.04 (t2linux), always on
+- GPU worker: Ryzen 7 7800X3D, RTX 5070 12 GB, Windows 11 Pro, off until needed
+- Workflow engine: n8n 2.x, self-hosted in Docker, localhost only
+- Models: Ollama (qwen3:14b), Chatterbox-Turbo (voice), faster-whisper (captions), ComfyUI with FLUX.1-schnell + LTX-2.3 (images and video)
+- Approval: private Telegram bot through a self-hosted Bot API server
+- Remote access: Cloudflare Tunnel + Cloudflare Access, zero ports forwarded
+
+**Highlights:**
+
+- **Runs itself.** The video is usually waiting on my phone before I'm up. A failed run sends an alert, and `/run` retries it.
+- **A human approves every upload.** There is no code path that posts on its own.
+- **Accuracy is enforced in code.** The model writes; code checks every number, name and rule against the source articles and sends it back to fix what's wrong.
+- **Nothing exposed.** Every GPU service runs as its own least-privilege account, and the image generator never leaves loopback.
 
 ---
 
@@ -32,139 +40,204 @@ If any step fails, I get a Telegram alert, and one command remakes the day's vid
 
 ```mermaid
 flowchart TB
-    subgraph M["Orchestrator: always on (n8n in Docker)"]
-        S["Daily schedule"] --> FS["Find story<br>RSS feeds, ranked by coverage"]
-        FS --> W["Wake GPU box<br>host-side Wake-on-LAN"]
-        TG["Telegram approval card"]
-        YT["YouTube upload"]
-        X["Archive with reason"]
+    subgraph M["MiniJuiceBox: Mac mini, Ubuntu, always on"]
+        N["n8n workflows<br>(Docker, localhost only)"]
+        TG["Self-hosted Telegram Bot API server"]
+        YT["YouTube Data API publisher"]
     end
-    subgraph J["GPU worker: RTX 5070, powered on demand"]
-        L["Local LLM (qwen3:14b)<br>judge, fact sheet, script, shot plan"]
-        V["Narration + Whisper timings"]
-        R["Render service (async jobs)<br>OG: FLUX keyframes → LTX-2.3 clips<br>Flat: code-drawn diagram"]
-        A["ffmpeg + NVENC<br>captions, master + preview"]
+    subgraph J["JuiceBox: Ryzen 7 7800X3D + RTX 5070 12 GB, Windows, off until needed"]
+        L["Ollama · qwen3:14b"]
+        T["TTS service · Chatterbox-Turbo"]
+        R["Render service · faster-whisper, async jobs"]
+        C["ComfyUI (loopback only)<br>FLUX.1-schnell → LTX-2.3"]
+        G["Graphics engine<br>Skia + NumPy"]
+        F["ffmpeg + NVENC"]
     end
-    W --> L --> V --> R --> A --> TG
-    TG -->|"Approve"| YT
-    TG -->|"Reject"| X
-    TG -->|"Reply with changes"| L
+    CF["Cloudflare Tunnel + Access"] --> N
+    N -->|Wake-on-LAN| J
+    N --> L
+    N --> T
+    N --> R
+    R --> C --> F
+    R --> G --> F
+    F --> TG
+    TG -->|Approve| YT
 ```
 
-| Part | What it runs on |
-| --- | --- |
-| Orchestrator | 2018 Intel Mac mini, Ubuntu 24.04, 32 GB RAM, always on |
-| GPU worker | Ryzen 7 7800X3D, RTX 5070 (12 GB), Windows 11, **off unless needed** |
-| Workflow engine | n8n, self-hosted in Docker |
-| LLM | Ollama, `qwen3:14b` |
-| Images / video | ComfyUI: FLUX.1-schnell (keyframes), LTX-2.3 22B distilled (image-to-video), both GGUF |
-| Voice | Chatterbox-Turbo on the GPU (started on Kokoro-82M on the CPU) |
-| Captions | faster-whisper word timestamps |
-| Diagrams | Skia + NumPy, drawn frame by frame in code |
-| Remote access | Cloudflare Tunnel + Cloudflare Access, no open ports |
-| Approval | Telegram bot, through a self-hosted Telegram Bot API server |
+<p align="center">
+  <img src="media/n8n-workflow.png" alt="The main n8n workflow" width="800">
+</p>
 
-The orchestrator has to be always on, but the GPU box is a desktop I actually use, and leaving it running 24/7 for one morning job is wasteful and loud. So the most interesting problem was the line between the two machines: the orchestrator has to wake the worker, confirm it's ready, and fail cleanly when it isn't.
+---
 
-<!-- MEDIA: n8n workflow canvas -->
+## How a video gets made
+
+```mermaid
+flowchart LR
+    A["05:00 schedule"] --> B["Read 8 security<br>news feeds"]
+    B --> C["Rank stories<br>by coverage"]
+    C --> D["Wake the<br>GPU box"]
+    D --> E["AI judges the<br>shortlist"]
+    E --> F["Fact sheet<br>(code-checked)"]
+    F --> G["Four-act script<br>(code-checked)"]
+    G --> H["Narration +<br>word timings"]
+    H --> I["Visuals:<br>OG or flat"]
+    I --> J["Render with<br>captions"]
+    J --> K["Telegram<br>approval card"]
+    K -->|Approve| L["YouTube Shorts"]
+    K -->|Reject| M["Archive + reason"]
+    K -->|"Reply with changes"| G
+```
+
+1. **Find the story.** Eight security news feeds (The Record, CyberScoop, Krebs on Security, SecurityWeek, The Hacker News, Help Net Security, Dark Reading, BleepingComputer) get grouped into stories and scored by how many outlets carry each one, with diminishing returns and a penalty for stale news. Anything covered in the last week is skipped.
+2. **Judge the shortlist.** The local LLM rates the top four on real people involved, a clear cause, a concrete step for the viewer, and hook strength. It uses my past approve/reject decisions as a taste reference, and the approval card shows me why it picked the winner.
+3. **Build a fact sheet.** The model pulls facts from the source articles, and code checks each one against the article text before the script can use it.
+4. **Write the script.** Four acts every time: *what happened, why it matters, how it happened, what to do*. "What to do" has to come from the story itself, not generic security tips.
+5. **Narrate.** A cloned narrator voice (a public-domain audiobook reader) runs on the GPU. Whisper transcribes it back into word-level timestamps, which drive both the shot timing and the word-by-word captions.
+6. **Animate and render** in one of two visual styles, assembled with ffmpeg on the GPU's hardware encoder.
+7. **Deliver and wait.** A phone preview, the full-quality master and an approval card land in Telegram.
+
+<p align="center">
+  <img src="media/telegram-approval-card.png" alt="Telegram approval card with Approve and Reject buttons" width="320">
+  &nbsp;
+  <img src="media/telegram-published.png" alt="Card after approval, published to YouTube" width="320">
+</p>
 
 ---
 
 ## Two visual styles
 
-**OG:** every sentence becomes a shot. The LLM writes a keyframe prompt and a motion prompt for each one, FLUX.1-schnell draws the keyframe, and LTX-2.3 animates it (always image-to-video, which keeps shots consistent). Jobs are batched by model, so all keyframes render first and then all clips, because reloading 14 GB of weights per shot would cost more than generating the shot. Code-drawn maps, stat cards and logo tiles are cut in between. It takes about half an hour per video.
+### OG: pictures and motion (~40 minutes per video)
 
-**Flat:** one evolving explainer diagram, drawn entirely in code: no image model at all. The LLM plans a board of parts (servers, browsers, code panes, people, clouds) and beats (data stolen along a link, a crowd fanning out, a connection cut, an alarm). A follow camera then glides around a board bigger than the screen, from one focus to the next. There are five looks (board, chalk, whiteboard, terminal, blueprint). It takes about 15 minutes per video.
+Every sentence becomes a shot. The LLM writes a picture prompt and a motion prompt for each one, **FLUX.1-schnell** draws the keyframe, and **LTX-2.3** animates it. Code-drawn maps, stat counters, text cards and real company logos get cut in between. Nine art styles rotate by day.
 
-<!-- MEDIA: a flat-style frame or short GIF -->
+Jobs are batched by model (every keyframe first, then every clip), because reloading 14 GB of weights per shot costs more than generating the shot.
+
+> **Hiccup:** Image models love inventing fake lettering. Every keyframe now goes through OCR. If made-up text shows up, the frame gets redrawn once, and anything left over is painted out.
+
+<p align="center">
+  <img src="media/og-1.png" alt="OG style frame" width="240">
+  <img src="media/og-2.png" alt="OG style frame" width="240">
+  <img src="media/og-3.png" alt="OG style frame" width="240">
+</p>
+
+### Flat: one explainer diagram (~5 minutes per video)
+
+No image model at all. The LLM plans a board of parts (servers, browsers, code windows, clouds, people) and the beats of the story: data stolen along a link, malware spreading, a deadline, an alarm, a connection cut. My own graphics engine draws it frame by frame, and a virtual camera glides between focus points on a board bigger than the screen. Five looks (board, chalk, whiteboard, terminal, blueprint) rotate by day.
+
+> **Hiccup:** Diagram frames drew about 5× slower on the Ryzen than on the Mac mini. Turns out the Windows Skia build falls back to scalar pixel code. Moving the full-frame work into NumPy took it from **331 ms to 52 ms per frame**.
+
+<p align="center">
+  <img src="media/flat-1.png" alt="Flat style diagram frame" width="240">
+  <img src="media/flat-2.png" alt="Flat style diagram frame" width="240">
+</p>
 
 ---
 
-## Keeping it accurate
+## Running it from my phone
 
-News is unforgiving, so most of the "intelligence" is code that checks the model rather than prompts that trust it:
+Everything is driven from a private Telegram bot that only answers my chat.
 
-- **Facts first, prose second.** The script can only use numbers that appear on the fact sheet, and the fact sheet is checked against the source articles.
-- **Model for judgment, code for counting.** A 14B model won't reliably hit a word count or follow "at most two sentences may start with *He*." Over 19 generations it broke that cap every time. So everything countable is enforced in code. Length is fixed by expanding the finished script, not by asking harder.
-- **Advice comes from the story.** The "what to do" act has to come from the articles, not generic security tips.
-- **Speech gets its own copy of the text.** Whisper heard the narrator say "12:47" as "12,047" and mangle version numbers. Times, dates and versions are spelled out in the narration copy only, then checked by running Whisper on the audio.
-- **Made-up lettering gets removed.** Image models invent fake text on signs and screens. OCR finds it, the keyframe is redrawn once, and anything left is inpainted away.
-- **Uploads are labeled.** Every video is marked as altered/synthetic content on YouTube.
-
----
-
-## Things that broke, and what fixed them
-
-### Wake-on-LAN from inside Docker
-
-Docker's NAT bridge doesn't forward broadcast traffic, so a magic packet sent from the n8n container never reaches the LAN. Instead, n8n SSHes to the host with a key restricted by `command=` in `authorized_keys`, so that key can run exactly one script: the wake script. If the credential store were ever compromised, the worst an attacker could do is turn on my desktop.
-
-### The MAC address that wasn't
-
-The first cold-wake test failed silently. The MAC I'd logged for the wired NIC belonged to a **Hyper-V `vEthernet` switch bridged to the Wi-Fi card**. On a Hyper-V host, `ipconfig /all` lists several adapters that all read like Ethernet. Match on the *Description* (the physical chipset), never on the label.
-
-<!-- MEDIA: ipconfig, vEthernet vs the physical NIC (MACs blurred) -->
-
-### "Packet not arriving" vs. "machine ignoring it"
-
-The most useful single move: run Wireshark **on the target while it's still on**, filtered to `eth.dst == ff:ff:ff:ff:ff:ff && udp`. That splits network-side from host-side in one step. In my case the packet arrived fine and the machine was ignoring it.
-
-<!-- MEDIA: Wireshark capture of the magic packet (payload blurred) -->
-
-### Four layers, any one of which kills wake from full shutdown
-
-| Layer | Setting |
+| Command / action | What it does |
 | --- | --- |
-| Windows | Fast Startup **off** (otherwise "shutdown" is really hibernate and the NIC loses wake state) |
-| NIC driver, Power Management | all wake options on |
-| NIC driver, Advanced | "Shutdown Wake-On-Lan" **on** |
-| BIOS, APM | "Power On By PCI-E" **on** |
+| **Approve** | Uploads to YouTube right away, labeled as altered/synthetic content |
+| **Reject** | Asks why, archives the video, and offers **Make another video** |
+| *Reply to a video* | "Line 3 should say the patch came out October 8", "cut the line about X", "shorter title". The bot proposes exact edits with a **Render it** button. Several replies stack into one render |
+| `/run` | Makes today's video now (retries the same story after a failure, picks a new one after a rejection) |
+| `/run <link>` | Makes a video about a specific article |
+| `/style flat` · `/style og` | Switches the default visual style |
+| `/stats` · `/stats week` | Videos made, decisions, views and watch share. A weekly report also arrives every Sunday |
+| `/queue` · `/script` | Upload status, and the script with timestamps |
 
-Missing any one of them gives the same symptom: the packet arrives and nothing happens.
+<p align="center">
+  <img src="media/telegram-reject.png" alt="Reject asks for a reason: facts wrong, weak story, pictures off, sound off, already covered" width="240">
+  <img src="media/telegram-revision.png" alt="Asking the bot for a change and getting a Render it button" width="240">
+  <img src="media/telegram-stats.png" alt="Weekly stats report in Telegram" width="240">
+</p>
 
-<!-- MEDIA: BIOS APM screen -->
+---
 
-### Structured output shortened the scripts
+## Keeping a small model honest
 
-Asking the LLM for the script *and* its metadata in one multi-field JSON schema made it write ~100-word scripts and ignore explicit length rules. That happened with both `qwen2.5:14b` and `qwen3:14b`, with or without thinking mode. A schema with only the script field didn't do it. The fix is two passes: plain prose first, then a schema call that only produces the title, tags and sources. Structured output is for structured fields, not for prose.
+News doesn't forgive mistakes, so most of the "intelligence" here is code that checks the model, not prompts that trust it.
 
-### Installing services on Windows you can't SSH into
+- **Facts first, prose second.** The script can only use numbers and names on the fact sheet, and the fact sheet is verified against the source articles.
+- **The model judges, the code counts.** A 14B model won't reliably hit a word count or follow "at most two sentences may start with *He*". It broke that rule in 19 of 19 test runs. Every countable rule is checked in code and fed back for a retry, and anything still wrong after the last try gets flagged on the approval card.
+- **Speech gets its own text.** Whisper heard "12:47" read aloud as "12,047". Times, dates and version numbers are spelled out in the narrator's copy only, and the on-screen script keeps the originals.
+- **Every upload is labeled** as altered/synthetic content, because the narrator is a cloned voice.
 
-The GPU box has no remote shell (the only key pointing at it is the wake key), so every install is a committed PowerShell script I run by hand. Each one logs a transcript, fails loudly, and can be re-run safely. Some things they had to defend against:
+Here's what that looks like on a real card. The checks caught a dropped fact, sentences that ran long and repeated settings, and the card tells me exactly where before I decide:
 
-- **`uv` hardlinks packages out of its cache, and a hardlink shares the cache's ACL.** The service account couldn't import its own packages. Worse, two venvs built from one cache *share* those files, so fixing one venv's permissions silently broke the other's. The fix is copy-mode installs plus a check that sampled files have a link count of 1.
-- **`secedit /configure` returns 0 whether or not it applied anything.** Granting "log on as a batch job" this way reported success and did nothing. I replaced it with `LsaAddAccountRights` via P/Invoke, verified by reading the rights back.
-- **Exit code 0 can mean failure.** One server calls `exit(0)` when its model files are missing, so a scheduled task logs success while nothing listens. Readiness is proved by polling `/health`, never by the process being alive.
-- **A dependency released three days earlier broke transcription** (PyAV 19 dropped an argument faster-whisper still passes). Since then, every install comes from a hash-locked lock file.
+<p align="center">
+  <img src="media/telegram-warnings.png" alt="Approval card flagged DELIVERED WITH PROBLEMS, listing each rule the script broke" width="320">
+</p>
 
-### n8n silently caps workflow timeouts at one hour
+> **Hiccup:** Scripts kept coming back around 100 words no matter what the prompt said. The cause was asking for the script and its metadata in one JSON schema, which squashes output length. Now prose comes from a plain call, and a second call fills only the title, hashtags and sources.
 
-That holds unless `EXECUTIONS_TIMEOUT_MAX` is raised. I found it by reading the source before a long render poll hit the limit.
+---
 
-### A 50 MB wall in Telegram
+## Getting the GPU box to cooperate
 
-The cloud Bot API caps bot uploads at 50 MB, so only the compressed preview ever reached my phone. A self-hosted Telegram Bot API server takes files up to 2 GB, so the full-quality master now arrives as a document.
+This was the part that fought me the most.
 
-### The same drawing code ran 5× slower on the faster PC
+> **Hiccup #1:** The Wake-on-LAN packet from n8n never woke the PC. Docker's NAT bridge doesn't forward broadcast traffic. **Fix:** n8n SSHes to its own host with a key that can run exactly one script, and the host sends the packet.
 
-The flat style's frames drew about 5× slower on the Ryzen box than on a 2018 Mac mini. I ruled out the pipe into ffmpeg, process priority and power settings one at a time, each with measurements. The cause: the Windows build of skia-python is compiled with MSVC, and Skia falls back to **scalar** (no SIMD) pixel code when it isn't built with Clang or GCC. The fix was to stop leaning on Skia for full-frame work: draw straight into a NumPy array, composite the static background once, and do the edge fades in NumPy. **331 → 52 ms per frame** on the Windows box, with output within 3–4 levels per channel of the old frames.
+> **Hiccup #2:** The packet arrived and the PC still slept. Wake was disabled at layers below Windows. **Fix:** Fast Startup off, NIC power management, NIC "Shutdown Wake-On-Lan", and BIOS "Power On By PCI-E". Miss any one of the four and you get the exact same silent failure.
 
-### A WAV that claimed to be almost 25 hours long
+> **Hiccup #3:** A service showed "running" but nothing was listening. The server had exited cleanly when its model files were missing. **Fix:** readiness is proven by polling each service's `/health`, never by the process being alive.
 
-The first TTS server streams its response and writes a placeholder data size of `0xFFFFFFFF`. Divide that by the byte rate and a 5.5-second clip reports **89,478 seconds**. Duration is now parsed from the real bytes.
+> **Hiccup #4:** Every service runs as its own non-admin account, and the shared `C:\Services` folder has inheritance broken so each account only gets what it needs. Locking it down that tight broke Ollama with a plain "Access is denied". Process Monitor, filtered to `ollama.exe` and `ACCESS DENIED`, showed the denial wasn't on its own models folder at all. It was on the parent `C:\Services` folder. **Fix:** grant that account read and list on the parent folder only, nothing below it.
+
+<p align="center">
+  <img src="media/procmon-access-denied.png" alt="Process Monitor showing ollama.exe denied access to C:\Services" width="800">
+</p>
 
 ---
 
 ## Security
 
-- No open ports. The orchestrator is reached only through Cloudflare Tunnel + Access, then n8n's own login.
-- ComfyUI has no authentication, so it listens on loopback only, under its own low-privilege account. The render service on the same machine is its only client.
-- The wake key is forced-command restricted and can run exactly one script.
-- Credentials live in n8n's encrypted store. Host values (IPs, MACs, chat IDs) live in an untracked config file and are filled in at deploy time, and the deploy script refuses to run if any placeholder is left.
-- A human approves every upload. There's no auto-post path.
+- **Nothing is exposed.** The workflow engine and bot server listen on localhost only and are reached through Cloudflare Tunnel + Access, then their own login.
+- **Least privilege on the GPU box.** Each service runs as its own low-privilege account. The image generator has no authentication of its own, so it only listens on loopback, and the render service is its only client.
+- **A stolen wake key can only turn my PC on.** The SSH key n8n holds is locked to a single command.
+- **Secrets never touch git.** Credentials live in n8n's encrypted store, and host-specific values are filled in at deploy time.
+- **Pinned, hash-checked installs** for every package and model on the GPU box.
+- **A human approves every upload.**
 
 ---
 
+## Key Takeaways
+
+| Issue | Root Cause | Fix |
+| --- | --- | --- |
+| WoL packet from n8n never woke the PC | Docker's NAT bridge doesn't forward broadcast | SSH forced-command key; the host sends the packet |
+| Packet arrived, PC still slept | Wake disabled below the OS | Fast Startup off, NIC power settings, NIC wake-on-shutdown, BIOS PCI-E wake |
+| Code changes didn't reach the 05:00 run | n8n 2.x saves edits as drafts; schedules run the *published* version | Deploy script that validates, uploads and publishes every workflow |
+| Scripts stuck at ~100 words | One multi-field JSON schema suppresses output length | Plain prose call, then a separate metadata call |
+| Diagram frames 5× slower on Windows | Windows Skia build falls back to scalar pixel code | Full-frame work in NumPy: 331 → 52 ms/frame |
+| A 5.5 s audio file measured 89,478 s | Streaming TTS writes a placeholder size in the WAV header | Compute duration from the bytes actually present |
+| Service "running", nothing listening | Server exited cleanly with missing model files | Readiness = `/health` answers, not process alive |
+| Ollama's service account got "Access is denied" | Broken inheritance on `C:\Services` left it unable to read the parent folder | Found with Procmon; read/list on the parent folder only |
+| Transcription broke after a rebuild | A three-day-old dependency release dropped an argument | Hash-locked dependencies, down to the model weights |
+| Only a compressed preview reached my phone | Telegram's cloud Bot API caps uploads at 50 MB | Self-hosted Bot API server (2 GB) |
+| Long renders killed at 60 minutes | n8n's default execution time cap | Found the limit in n8n's source and raised it |
+
+---
+
+## Result
+
+<p align="center">
+  <img src="media/youtube-studio.png" alt="YouTube Studio showing the published Shorts" width="800">
+</p>
+
+The pipeline runs on its own every morning and publishes to the CyberJuice channel after I approve. A video takes about 5 minutes (flat) or 40 minutes (OG) on one consumer GPU, with no per-video AI costs.
+
+---
+
+## Built with
+
+n8n · Ollama · Qwen3 · Chatterbox-Turbo · faster-whisper · ComfyUI · FLUX.1-schnell · LTX-2.3 · Skia · NumPy · ffmpeg · Telegram Bot API · YouTube Data API · Cloudflare Tunnel · Docker
+
+Built by [Yossef](https://github.com/yossefhabib), with Claude as a pair programmer during development.
 ## Stack
 
 n8n · Docker · Ollama (qwen3:14b) · ComfyUI · FLUX.1-schnell · LTX-2.3 · Chatterbox-Turbo · faster-whisper · Skia · NumPy · ffmpeg/NVENC · Telegram Bot API · YouTube Data API · Cloudflare Tunnel + Access · Python · PowerShell
