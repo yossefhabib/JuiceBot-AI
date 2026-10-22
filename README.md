@@ -2,9 +2,11 @@
 
 **Every morning at 05:00, two machines in my house pick the day's top cybersecurity story, write and fact-check a script, narrate it, animate it, and render a finished YouTube Short. Then it texts me the video and waits. Nothing gets posted until I tap Approve.**
 
-FLAT_VIDEO_LINK
 
-**Watch the output:** [CyberJuice on YouTube](CHANNEL_URL)
+https://github.com/user-attachments/assets/5ca62d29-8a27-4b4d-8910-de45ebb7af49
+
+
+**Watch the output:** [CyberJuice on YouTube](https://www.youtube.com/@CyberJuice.403)
 
 > This repo is a write-up of the project. The source code is kept private.
 
@@ -63,7 +65,7 @@ flowchart TB
 ```
 
 <p align="center">
-  <img src="media/n8n-workflow.png" alt="The main n8n workflow" width="800">
+  <img src="https://github.com/user-attachments/assets/9cf61201-6b4c-4643-874b-69be94059123" alt="The main n8n workflow" width="800">
 </p>
 
 ---
@@ -96,7 +98,7 @@ flowchart LR
 7. **Deliver and wait.** A phone preview, the full-quality master and an approval card land in Telegram.
 
 <p align="center">
-  <img src="media/telegram-published.png" alt="Card after approval, published to YouTube" width="320">
+  <img src="https://github.com/user-attachments/assets/365057fa-2188-4031-ba04-8d7711503e35" alt="Card after approval, published to YouTube" width="320">
 </p>
 
 ---
@@ -109,15 +111,28 @@ This is what the channel runs now. No image model at all. The LLM plans a board 
 
 > **Hiccup:** Diagram frames drew about 5× slower on the Ryzen than on the Mac mini. Turns out the Windows Skia build falls back to scalar pixel code. Moving the full-frame work into NumPy took it from **331 ms to 52 ms per frame**.
 
-### Where it started: OG pictures and motion (~40 minutes per video)
+### Before that: OG pictures and motion (~40 minutes per video)
 
-The first version painted every sentence as its own shot. The LLM wrote a picture prompt and a motion prompt for each one, **FLUX.1-schnell** drew the keyframe, and **LTX-2.3** animated it, with code-drawn maps, stat counters and real company logos cut in between. Jobs were batched by model (every keyframe first, then every clip), because reloading 14 GB of weights per shot cost more than generating the shot.
+The second version painted every sentence as its own shot. The LLM wrote a picture prompt and a motion prompt for each one, **FLUX.1-schnell** drew the keyframe, and **LTX-2.3** animated it, with code-drawn maps, stat counters and real company logos cut in between. Jobs were batched by model (every keyframe first, then every clip), because reloading 14 GB of weights per shot cost more than generating the shot.
 
 > **Hiccup:** Image models love inventing fake lettering. Every keyframe went through OCR. If made-up text showed up, the frame was redrawn once, and anything left over was painted out.
 
 It worked, but flat renders in an eighth of the time. The pipeline can still make OG videos with `/style og`; flat is the default.
 
-OG_VIDEO_LINK
+
+https://github.com/user-attachments/assets/02669bcd-0e17-45ca-bc58-df031ab0b3f6
+
+
+### Where it all started: a history slideshow
+
+The channel didn't start as cybersecurity. The first plan was history: true stories that sound made up. The first videos used a different voice model (Kokoro-82M, running on the CPU), and the visuals were public-domain paintings, engravings and archival photos pulled from the web, each one with a slow zoom-pan.
+
+It technically worked, but it looked like a slideshow, and the pictures often didn't match the line being read. It was pretty bad. That's what pushed me to generate the visuals myself.
+
+
+https://github.com/user-attachments/assets/5af47f3f-fe1a-4771-8e60-5d85e9e5e000
+
+
 
 ---
 
@@ -131,14 +146,19 @@ Everything is driven from a private Telegram bot that only answers my chat.
 | **Reject** | Asks why, archives the video, and offers **Make another video** |
 | *Reply to a video* | "Line 3 should say the patch came out October 8", "cut the line about X", "shorter title". The bot proposes exact edits with a **Render it** button. Several replies stack into one render |
 | `/run` | Makes today's video now (retries the same story after a failure, picks a new one after a rejection) |
-| `/run <link>` | Makes a video about a specific article |
+| `/run <link>` | Makes a video about any article I paste in, at any time of day, not just the 05:00 pick |
 | `/style flat` · `/style og` | Switches the default visual style |
 | `/stats` · `/stats week` | Videos made, decisions, views and watch share. A weekly report also arrives every Sunday |
 | `/queue` · `/script` | Upload status, and the script with timestamps |
 
 <p align="center">
-  <img src="media/telegram-reject.png" alt="Reject asks for a reason: facts wrong, weak story, pictures off, sound off, already covered" width="240">
-  <img src="media/telegram-run.png" alt="Rejecting a repeat story in plain words, then /run starting a new video" width="240"></p>
+  <img src="https://github.com/user-attachments/assets/c90b5396-fbf2-4837-b8af-abd9e17b039a" alt="Reject asks for a reason: facts wrong, weak story, pictures off, sound off, already covered" width="240">
+  <img src="https://github.com/user-attachments/assets/a18c2e9a-e9fa-4ad5-a9ca-1eb7feb1af4a" alt="Rejecting a repeat story in plain words, then /run starting a new video" width="240">
+  <img src="https://github.com/user-attachments/assets/a5ca3097-c92c-436c-ae4e-fb75593d28d4" alt="Sending /run with an article link to make a video on demand" width="240">
+</p>
+
+<p align="center"><sub>Left to right: Reject asks why · rejecting a repeat story in plain words, then <code>/run</code> picks a new one · <code>/run &lt;link&gt;</code> makes a video from any article, any time</sub></p>
+
 
 ---
 
@@ -154,7 +174,7 @@ News doesn't forgive mistakes, so most of the "intelligence" here is code that c
 Here's what that looks like on a real card. The checks caught a dropped fact, sentences that ran long and repeated settings, and the card tells me exactly where before I decide:
 
 <p align="center">
-  <img src="media/telegram-warnings.png" alt="Approval card flagged DELIVERED WITH PROBLEMS, listing each rule the script broke" width="320">
+  <img src="https://github.com/user-attachments/assets/5dffe957-dad4-47ed-b6b0-85f30ca1a5a5" alt="Approval card flagged DELIVERED WITH PROBLEMS, listing each rule the script broke" width="320">  
 </p>
 
 > **Hiccup:** Scripts kept coming back around 100 words no matter what the prompt said. The cause was asking for the script and its metadata in one JSON schema, which squashes output length. Now prose comes from a plain call, and a second call fills only the title, hashtags and sources.
@@ -170,7 +190,7 @@ This was the part that fought me the most.
 > **Hiccup #2:** The packet arrived and the PC still slept. Wake was disabled at layers below Windows. **Fix:** Fast Startup off, NIC power management, NIC "Shutdown Wake-On-Lan", and BIOS "Power On By PCI-E". Miss any one of the four and you get the exact same silent failure.
 
 <p align="center">
-  <img src="media/bios-pcie-wake.jpg" alt="ASUS BIOS APM Configuration with Power On By PCI-E enabled and ErP disabled" width="600">
+  <img src="https://github.com/user-attachments/assets/02704abc-e8ee-4ac7-9aca-67885039e21c" alt="ASUS BIOS APM Configuration with Power On By PCI-E enabled and ErP disabled" width="600">
 </p>
 
 > **Hiccup #3:** A service showed "running" but nothing was listening. The server had exited cleanly when its model files were missing. **Fix:** readiness is proven by polling each service's `/health`, never by the process being alive.
@@ -178,7 +198,7 @@ This was the part that fought me the most.
 > **Hiccup #4:** Every service runs as its own non-admin account, and the shared `C:\Services` folder has inheritance broken so each account only gets what it needs. Locking it down that tight broke Ollama with a plain "Access is denied". Process Monitor, filtered to `ollama.exe` and `ACCESS DENIED`, showed the denial wasn't on its own models folder at all. It was on the parent `C:\Services` folder. **Fix:** grant that account read and list on the parent folder only, nothing below it.
 
 <p align="center">
-  <img src="media/procmon-access-denied.png" alt="Process Monitor showing ollama.exe denied access to C:\Services" width="800">
+  <img src="https://github.com/user-attachments/assets/a6ea424b-fb0d-4d69-acd5-367540c8dc6c"  alt="Process Monitor showing ollama.exe denied access to C:\Services" width="800">
 </p>
 
 ---
@@ -215,8 +235,9 @@ This was the part that fought me the most.
 ## Result
 
 <p align="center">
-  <img src="media/youtube-studio.png" alt="YouTube Studio showing the published Shorts" width="800">
+  <img src="https://github.com/user-attachments/assets/6580d4df-2a00-4394-ad49-13dd43fbd8ad" alt="YouTube Studio showing the published Shorts" width="800">
 </p>
+
 
 The pipeline runs on its own every morning and publishes to the CyberJuice channel after I approve. A video takes about 5 minutes to render on one consumer GPU, with no per-video AI costs.
 
