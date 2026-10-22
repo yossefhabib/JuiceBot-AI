@@ -183,7 +183,15 @@ Here's what that looks like on a real card. The checks caught a dropped fact, se
 
 ## Getting the GPU box to cooperate
 
-This was the part that fought me the most.
+Most of my time on this project went to one loop. JuiceBox has no remote shell on purpose: the only key that reaches it can turn it on and nothing else. So every change on it is a PowerShell script. Claude Code wrote it on MiniJuiceBox, I copied it over with WinSCP, ran it by hand in an elevated PowerShell, and when it failed, brought the log back so we could fix it and go again.
+
+Every script is idempotent, stops at the first error and writes a transcript, so a failed run is always safe to repeat. That `Fails` folder is where those logs piled up.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/dab90bd8-1d62-45bc-b4e1-8fc0e32dcb3a" alt="An elevated PowerShell running an install script on JuiceBox next to WinSCP copying scripts over from MiniJuiceBox" width="800">
+</p>
+
+These were the ones that fought me the most:
 
 > **Hiccup #1:** The Wake-on-LAN packet from n8n never woke the PC. Docker's NAT bridge doesn't forward broadcast traffic. **Fix:** n8n SSHes to its own host with a key that can run exactly one script, and the host sends the packet.
 
@@ -205,12 +213,22 @@ This was the part that fought me the most.
 
 ## Security
 
-- **Nothing is exposed.** The workflow engine and bot server listen on localhost only and are reached through Cloudflare Tunnel + Access, then their own login.
-- **Least privilege on the GPU box.** Each service runs as its own low-privilege account. The image generator has no authentication of its own, so it only listens on loopback, and the render service is its only client.
-- **A stolen wake key can only turn my PC on.** The SSH key n8n holds is locked to a single command.
-- **Secrets never touch git.** Credentials live in n8n's encrypted store, and host-specific values are filled in at deploy time.
-- **Pinned, hash-checked installs** for every package and model on the GPU box.
-- **A human approves every upload.**
+**Getting in**
+- **Nothing is exposed to the internet.** The workflow engine and bot server listen on localhost only and are reached through Cloudflare Tunnel + Access, then their own login. No ports are forwarded on the router.
+- **The bot only listens to me.** Telegram's webhook has to carry a secret header, and any message that isn't from my chat is dropped.
+- **No remote shell on the GPU box.** Every change there is a script I run by hand. The only key that reaches it is locked to a single command, so a stolen wake key can only turn my PC on.
+
+**On the GPU box**
+- **Least privilege.** Each service runs as its own non-admin account, with folder permissions granted one account at a time.
+- **Firewall scoped to one machine.** The three services that listen on the LAN only accept connections from the orchestrator. The image generator has no authentication of its own, so it never leaves loopback, and the render service is its only client.
+- **Exposure review.** When I started, Ollama listened on every interface with no authentication. I locked it down, closed Hyper-V management ports that were open to the LAN, removed stale firewall rules, and uninstalled ASUS DriverHub after its one-click remote code execution bug.
+- **Smart App Control stays on.** When it blocked a component, I swapped in a widely used, pinned build instead of turning it off.
+- **Pinned, hash-checked installs** for every package and model, from Python dependencies down to model weights.
+- **Firewall backups.** After one bad command disabled all 622 firewall rules at once (restored from a shadow copy), the firewall state gets saved before every change, with a copy kept off the box.
+
+**In the code and the output**
+- **Secrets never touch git.** Credentials live in n8n's encrypted store, and IPs, MACs and the chat ID live in a gitignored config filled in at deploy time. I rewrote the repo's history to remove the ones that had slipped in.
+- **A human approves every upload,** and every upload is labeled as altered/synthetic content.
 
 ---
 
@@ -226,6 +244,7 @@ This was the part that fought me the most.
 | A 5.5 s audio file measured 89,478 s | Streaming TTS writes a placeholder size in the WAV header | Compute duration from the bytes actually present |
 | Service "running", nothing listening | Server exited cleanly with missing model files | Readiness = `/health` answers, not process alive |
 | Ollama's service account got "Access is denied" | Broken inheritance on `C:\Services` left it unable to read the parent folder | Found with Procmon; read/list on the parent folder only |
+| All 622 firewall rules disabled at once | A bare `Disable-NetFirewallRule` with no filter acts on every rule | Restored from a VSS shadow copy; firewall state now saved before every change |
 | Transcription broke after a rebuild | A three-day-old dependency release dropped an argument | Hash-locked dependencies, down to the model weights |
 | Only a compressed preview reached my phone | Telegram's cloud Bot API caps uploads at 50 MB | Self-hosted Bot API server (2 GB) |
 | Long renders killed at 60 minutes | n8n's default execution time cap | Found the limit in n8n's source and raised it |
