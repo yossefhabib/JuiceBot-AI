@@ -2,9 +2,7 @@
 
 **Every morning at 05:00, two machines in my house pick the day's top cybersecurity story, write and fact-check a script, narrate it, animate it, and render a finished YouTube Short. Then it texts me the video and waits. Nothing gets posted until I tap Approve.**
 
-<p align="center">
-  <img src="media/hero.gif" alt="A finished video from the pipeline" width="320">
-</p>
+FLAT_VIDEO_LINK
 
 **Watch the output:** [CyberJuice on YouTube](CHANNEL_URL)
 
@@ -81,7 +79,7 @@ flowchart LR
     E --> F["Fact sheet<br>(code-checked)"]
     F --> G["Four-act script<br>(code-checked)"]
     G --> H["Narration +<br>word timings"]
-    H --> I["Visuals:<br>OG or flat"]
+    H --> I["Explainer<br>diagram"]
     I --> J["Render with<br>captions"]
     J --> K["Telegram<br>approval card"]
     K -->|Approve| L["YouTube Shorts"]
@@ -94,43 +92,32 @@ flowchart LR
 3. **Build a fact sheet.** The model pulls facts from the source articles, and code checks each one against the article text before the script can use it.
 4. **Write the script.** Four acts every time: *what happened, why it matters, how it happened, what to do*. "What to do" has to come from the story itself, not generic security tips.
 5. **Narrate.** A cloned narrator voice (a public-domain audiobook reader) runs on the GPU. Whisper transcribes it back into word-level timestamps, which drive both the shot timing and the word-by-word captions.
-6. **Animate and render** in one of two visual styles, assembled with ffmpeg on the GPU's hardware encoder.
+6. **Draw and render.** The story becomes an animated explainer diagram (below), assembled with ffmpeg on the GPU's hardware encoder.
 7. **Deliver and wait.** A phone preview, the full-quality master and an approval card land in Telegram.
 
 <p align="center">
-  <img src="media/telegram-approval-card.png" alt="Telegram approval card with Approve and Reject buttons" width="320">
-  &nbsp;
   <img src="media/telegram-published.png" alt="Card after approval, published to YouTube" width="320">
 </p>
 
 ---
 
-## Two visual styles
-
-### OG: pictures and motion (~40 minutes per video)
-
-Every sentence becomes a shot. The LLM writes a picture prompt and a motion prompt for each one, **FLUX.1-schnell** draws the keyframe, and **LTX-2.3** animates it. Code-drawn maps, stat counters, text cards and real company logos get cut in between. Nine art styles rotate by day.
-
-Jobs are batched by model (every keyframe first, then every clip), because reloading 14 GB of weights per shot costs more than generating the shot.
-
-> **Hiccup:** Image models love inventing fake lettering. Every keyframe now goes through OCR. If made-up text shows up, the frame gets redrawn once, and anything left over is painted out.
-
-<p align="center">
-  <img src="media/og-1.png" alt="OG style frame" width="240">
-  <img src="media/og-2.png" alt="OG style frame" width="240">
-  <img src="media/og-3.png" alt="OG style frame" width="240">
-</p>
+## The look
 
 ### Flat: one explainer diagram (~5 minutes per video)
 
-No image model at all. The LLM plans a board of parts (servers, browsers, code windows, clouds, people) and the beats of the story: data stolen along a link, malware spreading, a deadline, an alarm, a connection cut. My own graphics engine draws it frame by frame, and a virtual camera glides between focus points on a board bigger than the screen. Five looks (board, chalk, whiteboard, terminal, blueprint) rotate by day.
+This is what the channel runs now. No image model at all. The LLM plans a board of parts (servers, browsers, code windows, clouds, people) and the beats of the story: data stolen along a link, malware spreading, a deadline, an alarm, a connection cut. My own graphics engine draws it frame by frame, and a virtual camera glides between focus points on a board bigger than the screen. Five looks (board, chalk, whiteboard, terminal, blueprint) rotate by day.
 
 > **Hiccup:** Diagram frames drew about 5× slower on the Ryzen than on the Mac mini. Turns out the Windows Skia build falls back to scalar pixel code. Moving the full-frame work into NumPy took it from **331 ms to 52 ms per frame**.
 
-<p align="center">
-  <img src="media/flat-1.png" alt="Flat style diagram frame" width="240">
-  <img src="media/flat-2.png" alt="Flat style diagram frame" width="240">
-</p>
+### Where it started: OG pictures and motion (~40 minutes per video)
+
+The first version painted every sentence as its own shot. The LLM wrote a picture prompt and a motion prompt for each one, **FLUX.1-schnell** drew the keyframe, and **LTX-2.3** animated it, with code-drawn maps, stat counters and real company logos cut in between. Jobs were batched by model (every keyframe first, then every clip), because reloading 14 GB of weights per shot cost more than generating the shot.
+
+> **Hiccup:** Image models love inventing fake lettering. Every keyframe went through OCR. If made-up text showed up, the frame was redrawn once, and anything left over was painted out.
+
+It worked, but flat renders in an eighth of the time. The pipeline can still make OG videos with `/style og`; flat is the default.
+
+OG_VIDEO_LINK
 
 ---
 
@@ -151,9 +138,7 @@ Everything is driven from a private Telegram bot that only answers my chat.
 
 <p align="center">
   <img src="media/telegram-reject.png" alt="Reject asks for a reason: facts wrong, weak story, pictures off, sound off, already covered" width="240">
-  <img src="media/telegram-revision.png" alt="Asking the bot for a change and getting a Render it button" width="240">
-  <img src="media/telegram-stats.png" alt="Weekly stats report in Telegram" width="240">
-</p>
+  <img src="media/telegram-run.png" alt="Rejecting a repeat story in plain words, then /run starting a new video" width="240"></p>
 
 ---
 
@@ -183,6 +168,10 @@ This was the part that fought me the most.
 > **Hiccup #1:** The Wake-on-LAN packet from n8n never woke the PC. Docker's NAT bridge doesn't forward broadcast traffic. **Fix:** n8n SSHes to its own host with a key that can run exactly one script, and the host sends the packet.
 
 > **Hiccup #2:** The packet arrived and the PC still slept. Wake was disabled at layers below Windows. **Fix:** Fast Startup off, NIC power management, NIC "Shutdown Wake-On-Lan", and BIOS "Power On By PCI-E". Miss any one of the four and you get the exact same silent failure.
+
+<p align="center">
+  <img src="media/bios-pcie-wake.jpg" alt="ASUS BIOS APM Configuration with Power On By PCI-E enabled and ErP disabled" width="600">
+</p>
 
 > **Hiccup #3:** A service showed "running" but nothing was listening. The server had exited cleanly when its model files were missing. **Fix:** readiness is proven by polling each service's `/health`, never by the process being alive.
 
@@ -229,7 +218,7 @@ This was the part that fought me the most.
   <img src="media/youtube-studio.png" alt="YouTube Studio showing the published Shorts" width="800">
 </p>
 
-The pipeline runs on its own every morning and publishes to the CyberJuice channel after I approve. A video takes about 5 minutes (flat) or 40 minutes (OG) on one consumer GPU, with no per-video AI costs.
+The pipeline runs on its own every morning and publishes to the CyberJuice channel after I approve. A video takes about 5 minutes to render on one consumer GPU, with no per-video AI costs.
 
 ---
 
@@ -238,6 +227,4 @@ The pipeline runs on its own every morning and publishes to the CyberJuice chann
 n8n · Ollama · Qwen3 · Chatterbox-Turbo · faster-whisper · ComfyUI · FLUX.1-schnell · LTX-2.3 · Skia · NumPy · ffmpeg · Telegram Bot API · YouTube Data API · Cloudflare Tunnel · Docker
 
 Built by [Yossef](https://github.com/yossefhabib), with Claude as a pair programmer during development.
-## Stack
 
-n8n · Docker · Ollama (qwen3:14b) · ComfyUI · FLUX.1-schnell · LTX-2.3 · Chatterbox-Turbo · faster-whisper · Skia · NumPy · ffmpeg/NVENC · Telegram Bot API · YouTube Data API · Cloudflare Tunnel + Access · Python · PowerShell
