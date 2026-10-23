@@ -260,6 +260,7 @@ These were the ones that fought me the most:
 
 The pipeline runs on its own every morning and publishes to the CyberJuice channel after I approve. A video takes about 5 minutes to render on one consumer GPU, with no per-video AI costs.
 
+**Watch the output:** [CyberJuice on YouTube](https://www.youtube.com/@CyberJuice.403)
 ---
 
 ## Built with
