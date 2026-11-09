@@ -267,5 +267,5 @@ The pipeline runs on its own every morning and publishes to the CyberJuice chann
 
 n8n · Ollama · Qwen3 · Chatterbox-Turbo · faster-whisper · ComfyUI · FLUX.1-schnell · LTX-2.3 · Skia · NumPy · ffmpeg · Telegram Bot API · YouTube Data API · Cloudflare Tunnel · Docker
 
-Built by [Yossef](https://github.com/yossefhabib), with Claude as a pair programmer during development.
+
 
